@@ -1,0 +1,108 @@
+# https://www.bjornjohansen.no/nginx-redirect
+fastcgi_cache_path /var/cache/nginx/@@CACHENAME@@ levels=1:1 keys_zone=@@CACHENAME@@:2m max_size=1024m inactive=14d;
+
+server {
+	listen		80 default_server;
+	# listen	[::]:80 default_server ipv6only=on;
+
+	server_name	@@HOSTNAME@@ www.@@HOSTNAME@@;
+#	root		@@PATH@@;
+
+	set		$root_path @@PATH@@;
+	root		$root_path;
+
+	access_log	/var/log/nginx/@@HOSTNAME@@-access.log combined buffer=32k;
+	error_log	/var/log/nginx/@@HOSTNAME@@-error.log error;
+	index		index.php index.html index.htm;
+	include		nginx-bp/methods.conf;
+	include		nginx-bp/system.conf;
+	include		nginx-bp/favicon.conf;
+#	include		nginx-bp/phpmyadmin.conf;
+	include		nginx-bp/static.conf;
+	include		nginx-bp/wordpress.conf;
+	include		nginx-bp/nocache.conf; 
+	include		nginx-bp/forbidrules.conf;
+#	include		nginx-bp/errors.conf;
+#	include		nginx-bp/pagespeed-per-site.conf;
+#	include		nginx-bp/cacheloggeduser-wp.conf;
+#	include		nginx-bp/status.conf;
+#	include		nginx-bp/roundcube.conf;
+#	include		nginx-bp/w3-total-cache.conf;
+
+#	if ($sb_allow = no) {
+#		rewrite ^(.*)$ http://blockedtoday.com permanent;
+#	}
+
+	if ($bad_client) { return 403; }
+
+	port_in_redirect off;
+
+	location /
+	{
+		try_files	$uri $uri/ /index.php?$args;
+		include		naxsi_wordpress.rules;
+		if ($uatype = 'limitbots') { limit_rate 8k;}
+		
+		# Use to Pagespeed & Varnish 4
+		##############################
+		# proxy_cache_purge PURGE from 127.0.0.1;
+
+		# Mark HTML as uncacheable.  If we can't send them purge requests they
+		# can't cache our html.  Uses the map defined above.
+		# proxy_hide_header Cache-Control;
+		# add_header Cache-Control $new_cache_control_header_val;
+
+		# Tell PageSpeed not to use optimizations specific to this request.
+		# proxy_set_header PS-CapabilityList "fully general optimizations only";
+		##############################
+
+		# Something try_files, does not works then use this rule 
+		# This rule must be final it catch all to route all requests to the bootstrap file.
+		# unless the request is for a valid file, send to bootstrap
+	}
+
+	# Alternatively, you could make sure that PHP is only enabled in certain directories, where file uploads are not allowed:
+	# location ~ ^/(scripts|sources|src)/.*\.php$ { fastcgi_pass 127.0.0.1:9000; }
+	location ~ [^/]\.php(/|$) {
+#		if (!-f $request_filename) { return 403; }
+		if ($uatype = 'limitbots') { limit_rate 8k;}
+		# Comment the 'try_files' line out if you set up php-fpm/php-fcgi on another machine.
+		fastcgi_param	SCRIPT_FILENAME $document_root$fastcgi_script_name;
+		if (!-f $document_root$fastcgi_script_name) { return 404; }
+		#if (!-e $request_filename) { rewrite / /index.php last; }
+		try_files			$uri =404;
+#		fastcgi_split_path_info		^(.+.php)(.*)$;
+		fastcgi_split_path_info		^(.+?\.php)(/.*)$;
+		fastcgi_pass			unix:/var/run/php-fpm.sock;
+		fastcgi_index			index.php;
+		fastcgi_param PATH_INFO		$fastcgi_path_info;
+		include			fastcgi_params;
+		fastcgi_ignore_client_abort		off;
+		fastcgi_keep_conn		on;
+		fastcgi_hide_header		"X-Powered-By";
+		fastcgi_ignore_headers		"Cache-Control" "Expires"; #"Set-Cookie";
+		fastcgi_param			SERVER_PORT 80;
+#		fastcgi_cache			@@CACHENAME@@;
+#		fastcgi_cache_key		"$scheme$request_method$host$request_uri$cs_session";
+		fastcgi_cache_key		"$scheme$request_method$host$request_uri";
+#		fastcgi_param			PHP_VALUE "newrelic.appname=@@HOSTNAME@@";
+#		include				nginx-bp/geoip.conf;
+		limit_req			zone=reqPerSec100 burst=250 nodelay;
+		limit_conn			conPerIp 50;
+		real_ip_header			X-Forwarded-For;
+		real_ip_recursive		on;
+		add_header			X-Support console.support;
+		add_header			X-Time-Spent $request_time;
+		add_header			X-Cache-status $upstream_cache_status;
+		add_header			X-Frame-Options SAMEORIGIN;
+		add_header			X-Content-Type-Options nosniff;
+		add_header			X-XSS-Protection "1; mode=block";
+	}
+
+	location ~ ^/purge(/.*) {
+#		allow     127.0.0.1;
+#		allow     10.1.1.0/24;
+#		deny     all;
+		fastcgi_cache_purge @@CACHENAME@@ "$scheme$request_method$host$1";
+    }
+}
