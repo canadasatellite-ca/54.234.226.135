@@ -15,7 +15,6 @@ server {
 	error_log	/var/log/nginx/@@HOSTNAME@@-error.log error;
 	index		index.php index.html index.htm;
 	include		nginx-bp/methods.conf;
-	include		nginx-bp/system.conf;
 	include		nginx-bp/favicon.conf;
 #	include		nginx-bp/phpmyadmin.conf;
 	include		nginx-bp/static.conf;
